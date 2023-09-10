@@ -102,7 +102,7 @@ int spilt_string(char input_string[],char out_string_arrary[][],char sign[])
     int  out_arrary_length ;
    
 
-    debug = 1;
+    debug = 0;
 
     StartIndexPos = -1;
     out_arrary_length = 1;
