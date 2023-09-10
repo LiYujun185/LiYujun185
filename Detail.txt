@@ -1,0 +1,129 @@
+includes
+{
+  
+}
+
+
+variables
+{  
+    char csv_data_path[100] = ".//Logging//brake.csv";  
+    struct csv_Data // record csv data
+  {
+    int SignalNum;
+    char timestamp[26];
+    int Date;        
+      
+  };
+   struct csv_Data csv_Data_array[1251];
+}
+
+on start
+{
+  @sysvar::Replay::Read_CSV_Switch=0;
+}
+
+on sysvar_update Replay::Read_CSV_Switch
+{
+  if(@sysvar::Replay::Read_CSV_Switch==1)
+  {
+    write("*****Read_From_CSV_Start***********");
+    ReadDataFromCsv(csv_data_path,csv_Data_array);
+  }
+  
+}
+
+
+int ReadDataFromCsv(char FilePath[], struct csv_Data Temp_csv_Data_array[])
+{ 
+
+  char p_data[100][100];
+  char buffer_ascii[100];
+  long retSize;
+  int i,j,glbHandle;
+  byte debug = 1 ;
+
+  glbHandle = OpenFileRead (FilePath,1);
+  
+  if (glbHandle!=0 )
+  {   
+    write("Read file :%s passed.",FilePath);
+    j = -1;
+    while(fileGetStringSZ(buffer_ascii,elcount(buffer_ascii),glbHandle)!=0)   
+    {
+      
+      if (j!=-1) //把表头去掉
+      {
+//        write ("*********lineNum:%d data:%s*********",j,buffer_ascii);
+        spilt_string(buffer_ascii,p_data,",");  //核心函数，分割字符串
+
+        snprintf(Temp_csv_Data_array[j].timestamp, elcount(p_data[0]), "%s", p_data[0]); 
+        Temp_csv_Data_array[j].Date = atol(p_data[1]);//string to long
+        @sysvar::Replay::Re_Brake[j]= Temp_csv_Data_array[j].Date;      
+      }
+      
+      j++;  // index ++ 
+    }
+    fileClose (glbHandle);     
+    Temp_csv_Data_array[j].SignalNum = j ;  // 最后统计多少行数据
+          
+    if(debug) //debug check values
+    {  
+      write ("************************Debug first line data******************************");
+      write("Temp_csv_Data_array[0].DataName:%s",Temp_csv_Data_array[0].timestamp);
+      write("Temp_csv_Data_array[0].DwordIndex:%d",Temp_csv_Data_array[0].Date);
+      
+    }  
+  }  
+  else
+  {
+    write("Read file :%s failed.",FilePath);
+    return 0; //failed    
+  }
+  return 1; //passed
+
+}
+
+/******************根据指定分隔符 分割字符串类似于python split 函数******************************/
+
+
+int spilt_string(char input_string[],char out_string_arrary[][],char sign[]) 
+{
+  
+  /*spilt string a,b,c,d to arrary {a,b,c,d}*/
+    int i ;
+    int debug;
+    int StartIndexPos;
+    char p_index[20];
+    int  out_arrary_length ;
+   
+
+    debug = 0;
+
+    StartIndexPos = -1;
+    out_arrary_length = 1;
+    p_index[0] = -1;
+
+    do{   
+         StartIndexPos =   strstr_off(input_string,StartIndexPos+1,sign);     
+         p_index[out_arrary_length] = StartIndexPos;    
+         if (StartIndexPos!=-1)
+             out_arrary_length ++;
+    
+    } while(StartIndexPos!=-1);
+       
+     p_index[out_arrary_length] = strlen(input_string)-1; 
+    
+      for(i=0;i<out_arrary_length;i++)
+    {       
+       substr_cpy(out_string_arrary[i], input_string, p_index[i]+1 ,  p_index[i+1] -  p_index[i] -1, elcount(out_string_arrary[i]));     
+      if (debug)
+      {
+       //write("serched postion:%d", p_index[i]);
+       write("out_string_arrary[%d]:%s", i,out_string_arrary[i]);
+      }      
+    } 
+       
+  return out_arrary_length;
+}
+
+

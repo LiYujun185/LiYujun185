@@ -1,0 +1,323 @@
+/*@!Encoding:936*/
+includes
+{
+  
+}
+
+variables
+{
+  /*报文定义*/
+  message AD_CAN::ADS_Brake_Cmd Brake_Cmd;
+  message AD_CAN::ADS_Drive_Cmd Drive_Cmd;
+  message AD_CAN::ADS_EPS_Cmd EPS_Cmd;
+  message ADS_Light_Horn_Cmd Light_Cmd;
+  
+  /*message定时器*/
+  msTimer Ctrl_Period;
+  msTimer Light_Period;
+  int Ctrl_dt = 10;    //ADS-Ctrl报文周期
+  int Light_dt = 100;  //ADS-Light报文周期
+  
+  /*消息计数器*/
+  int AliveCounter=1;
+  int AliveCounter_Light=1;
+  
+}
+
+/*初始化*/
+on Start  //ADS节点停发报文
+{ 
+  /*Node节点CAN控制信号初始化*/
+  @sysvar::ADAS::CAN_state=0;
+  
+  /*ADAS节点接管信号初始化*/
+  @sysvar::ADAS::Request_Access=0;  
+  
+  /*开环控制初始化*/
+  @sysvar::OpenLoop::Ctrl_Init=0;
+  
+  /*控制模式初始化*/
+  Init_Mode();
+  
+  /*轨迹控制终点执行命令!!!!!!!*/
+  @sysvar::TestControl::Maintain_Speed=0;            //终点维持车速
+  @sysvar::CloseLoop::End_Steer_Ang = 0;                        //终点转向角度
+  @sysvar::CloseLoop::End_Brake_Trq = 800;                   //终点制动扭矩
+  
+  
+}
+
+/*总线节点开关控制_系统变量发生变化时触发*/
+on sysvar_change sysvar::ADAS::CAN_state
+{ 
+  if(@sysvar::ADAS::CAN_state==1)
+   {
+    canOnline(3);
+    Ctrl_Init();
+    setTimer(Ctrl_Period,Ctrl_dt);
+    setTimer(Light_Period,Light_dt); 
+   }
+  else
+   {
+    canOffline(3);
+   }
+}
+
+/*接管控制_系统变量发生变化时触发*/
+on sysvar_change sysvar::ADAS::Request_Access
+{
+  if(@ADAS::Request_Access==1)
+    Confirm_Access();
+  else
+  {
+    Ctrl_Init();
+    Init_Mode();
+  }
+}
+
+
+
+/*ADS节点系统变量初始化*/
+void Ctrl_Init() 
+{
+  /********线控系统信号初始化****/
+  /*线控制动信号初始化*/
+  @sysvar::OpenLoop::BrakeCmd_Enable = 0;
+  @sysvar::OpenLoop::BrakeCmd_Clear = 0;
+  @sysvar::OpenLoop::Brake_Trq_Req = 0;     //制动扭矩请求Nm
+  @sysvar::OpenLoop::EPB_Ctrl_Req = 1;
+  
+  /*线控驱动信号初始化*/
+  @sysvar::OpenLoop::DriveCmd_Enable = 0;
+  @sysvar::OpenLoop::DriveCmd_Clear = 0;
+  @sysvar::OpenLoop::Drive_Trq_Req = 0;   //驱动扭矩请求Nm
+  @sysvar::OpenLoop::Shift_Ctrl_Req = 0;
+  
+  /*线控转向信号初始化*/
+  @sysvar::OpenLoop::SteerCmd_Enable = 0;
+  @sysvar::OpenLoop::SteerCmd_Clear = 0;
+  @sysvar::OpenLoop::EPS_Ang_Req =0;
+  @sysvar::OpenLoop::Target_Angle_speed_Reserved = 500;
+  
+  
+  /*软冲裁初始化*/
+  @sysvar::OpenLoop::Soft_arbitration_ind=0;
+  
+  
+}
+
+/*接管控制系统变量设置*/
+void Confirm_Access()
+{
+   /************接管请求指令************/
+  /*线控制动信号设置*/
+  @sysvar::OpenLoop::BrakeCmd_Enable = 1;
+  @sysvar::OpenLoop::BrakeCmd_Clear = 1;
+  @sysvar::OpenLoop::Brake_Trq_Req = 800;
+  @sysvar::OpenLoop::EPB_Ctrl_Req = 1;
+  
+  /*线控驱动信号设置*/
+  @sysvar::OpenLoop::DriveCmd_Enable = 1;
+  @sysvar::OpenLoop::DriveCmd_Clear = 1;
+  @sysvar::OpenLoop::Drive_Trq_Req = 0;
+  @sysvar::OpenLoop::Shift_Ctrl_Req = 0;
+  
+  /*线控转向信号设置*/
+  @sysvar::OpenLoop::SteerCmd_Enable = 1;
+  @sysvar::OpenLoop::SteerCmd_Clear =1;
+  @sysvar::OpenLoop::EPS_Ang_Req =0;
+  @sysvar::OpenLoop::Target_Angle_speed_Reserved = 500;
+  
+  
+  /*软冲裁设置*/
+  @sysvar::OpenLoop::Soft_arbitration_ind=0;
+  
+  
+  /*线控灯光信号设置*/
+  
+  
+  
+}
+
+
+
+/*控制模式初始化*/
+void Init_Mode()
+{
+  /*控制菜单初始化*/
+  @sysvar::ADAS::Control_Mode=0;
+  
+  /*横向控制开关初始化*/
+  @sysvar::STANLY::LateralControl=0;
+  
+  /*纵向控制开关初始化*/
+  @sysvar::CloseLoop::longitudinalControl=0;
+  
+  /*线性控制初始化*/
+  @sysvar::TestControl::EPS_Linear_switch=0;
+}
+
+/*开环控制初始化*/
+on sysvar_change sysvar::OpenLoop::Ctrl_Init
+{
+  if(@sysvar::OpenLoop::Ctrl_Init==1)
+  {
+    @sysvar::OpenLoop::Brake_Trq_Req = 0;
+    @sysvar::OpenLoop::Shift_Ctrl_Req = 1;
+    @sysvar::OpenLoop::EPB_Ctrl_Req = 0;
+    @sysvar::OpenLoop::Drive_Trq_Req = 0;
+  }
+    
+}
+
+
+/*控制模式：0-开环，1-全闭环，系统变量发生变化时触发*/
+on sysvar_change sysvar::ADAS::Control_Mode
+{
+  if(@sysvar::ADAS::Control_Mode==1)
+  {
+//    Brake_Cmd.ADS_Brake_Trq.phys=0;
+    @sysvar::OpenLoop::Brake_Trq_Req = 0;
+    @sysvar::OpenLoop::Shift_Ctrl_Req = 1;
+    @sysvar::OpenLoop::EPB_Ctrl_Req = 0;
+  }
+  else  //7/23 增加分支
+  {
+    @sysvar::OpenLoop::Brake_Trq_Req = 0;
+    @sysvar::OpenLoop::Shift_Ctrl_Req = 0;
+    @sysvar::OpenLoop::EPB_Ctrl_Req = 1;
+  }
+}
+
+
+on timer Ctrl_Period
+{
+  /************闭环控制分支************/
+  if(@sysvar::ADAS::Control_Mode==1)         //闭环控制开启策略
+  {
+    if(@sysvar::STANLY::LateralControl==1)   //横向控制开启策略
+    {
+      if(@sysvar::STANLY::END_line==0)
+      {
+        /*转向角度控制Singnal*/
+        EPS_Cmd.ADS_Target_Angle.phys = @sysvar::STANLY::Steer_angle;
+        /*制动扭矩控制Singnal*/
+        Brake_Cmd.ADS_Brake_Trq.phys = @sysvar::OpenLoop::Brake_Trq_Req;   //7/23更改,之前为=0
+      }
+      else
+      {
+        /*转向角度控制Singnal*/
+        EPS_Cmd.ADS_Target_Angle.phys = @sysvar::CloseLoop::End_Steer_Ang;                //终点转向角度，阶跃转向测试用，07/23更改
+        /*制动扭矩控制Singnal*/
+        Brake_Cmd.ADS_Brake_Trq.phys = @sysvar::CloseLoop::End_Brake_Trq;      //终点制动扭矩，07/23更改
+        @sysvar::CloseLoop::TargetSpeed=@TestControl::Maintain_Speed;    //终点维持车速，阶跃测试使用
+      } 
+    }
+    else
+    {
+      EPS_Cmd.ADS_Target_Angle.phys = 0;
+      /*制动扭矩控制Singnal*/
+      Brake_Cmd.ADS_Brake_Trq.phys = @sysvar::OpenLoop::Brake_Trq_Req;
+    }
+       
+    
+    if(@sysvar::CloseLoop::longitudinalControl==1)  //纵向控制开启策略
+      /*驱动扭矩控制Singnal*/
+      Drive_Cmd.ADS_Drive_Torque.phys = @sysvar::CloseLoop::PID_output; 
+    else
+      /*驱动扭矩控制Singnal*/
+      Drive_Cmd.ADS_Drive_Torque.phys = 0;
+  }
+  /************开环控制分支************/
+  else                                       //开环控制开启策略
+  {
+    /*纵向闭环横向开环测试功能*/
+    if(@sysvar::CloseLoop::longitudinalControl==1)  //纵向控制开启策略
+      /*驱动扭矩控制Singnal*/
+      Drive_Cmd.ADS_Drive_Torque.phys = @sysvar::CloseLoop::PID_output; 
+    else
+      /*驱动扭矩控制Singnal*/
+      Drive_Cmd.ADS_Drive_Torque.phys = @sysvar::OpenLoop::Drive_Trq_Req;
+      
+    
+    /*转向角度控制Singnal*/
+    EPS_Cmd.ADS_Target_Angle.phys = @sysvar::OpenLoop::EPS_Ang_Req;
+    
+    /*制动扭矩控制Singnal*/
+    Brake_Cmd.ADS_Brake_Trq.phys = @sysvar::OpenLoop::Brake_Trq_Req;
+    
+    
+  }
+  
+  /************公共控制分支************/
+  /*制动控制Singnal*/
+  Brake_Cmd.ADS_BrakeCmd_Enable = @sysvar::OpenLoop::BrakeCmd_Enable;
+  Brake_Cmd.ADS_BrakeCmd_Clear = @sysvar::OpenLoop::BrakeCmd_Clear;
+  Brake_Cmd.ADS_Parking_Cmd = @sysvar::OpenLoop::EPB_Ctrl_Req;
+  Brake_Cmd.Brake_Soft_arbitration_ind=@sysvar::OpenLoop::Soft_arbitration_ind;
+  
+  /*驱动控制Singnal*/
+  Drive_Cmd.ADS_DriveCmd_Enable = @sysvar::OpenLoop::DriveCmd_Enable;
+  Drive_Cmd.ADS_DriveCmd_Clear = @sysvar::OpenLoop::DriveCmd_Clear;
+  Drive_Cmd.ADS_Shift_Cmd=@sysvar::OpenLoop::Shift_Ctrl_Req;
+  Drive_Cmd.Drive_Soft_arbitration_ind=@sysvar::OpenLoop::Soft_arbitration_ind;
+  
+  /*转向控制Singnal*/
+  EPS_Cmd.ADS_SteerCmd_Enable = @sysvar::OpenLoop::SteerCmd_Enable;
+  EPS_Cmd.ADS_SteerCmd_Clear = @sysvar::OpenLoop::SteerCmd_Clear;
+  EPS_Cmd.ADS_Target_Angle_speed_Reserved.phys = @sysvar::OpenLoop::Target_Angle_speed_Reserved;
+  EPS_Cmd.Steer_Soft_arbitration_ind=@sysvar::OpenLoop::Soft_arbitration_ind;
+  
+  /*消息计数信号*/
+  Brake_Cmd.ADS_BrakeCmd_AliveCounter = AliveCounter;
+  Drive_Cmd.ADS_DriverCmd_AliveCounter =  AliveCounter;
+  EPS_Cmd.ADS_SteerCmd_AliveCounter = AliveCounter;
+  
+  
+  /************Checksum计算************/
+  Brake_Cmd.ADS_BrakeCmd_CheckSum = Brake_Cmd.byte(0)^Brake_Cmd.byte(1)^Brake_Cmd.byte(2)^Brake_Cmd.byte(3)^Brake_Cmd.byte(4)^Brake_Cmd.byte(5)^Brake_Cmd.byte(6)^(0xFF);
+  Drive_Cmd.ADS_DriverCmd_CheckSum = Drive_Cmd.byte(0)^Drive_Cmd.byte(1)^Drive_Cmd.byte(2)^Drive_Cmd.byte(3)^Drive_Cmd.byte(4)^Drive_Cmd.byte(5)^Drive_Cmd.byte(6)^(0xFF);
+  EPS_Cmd.ADS_SteeCmdr_CheckSum = EPS_Cmd.byte(0)^EPS_Cmd.byte(1)^EPS_Cmd.byte(2)^EPS_Cmd.byte(3)^EPS_Cmd.byte(4)^EPS_Cmd.byte(5)^EPS_Cmd.byte(6)^(0xFF);
+  
+  /*Message发送*/
+  output(Brake_Cmd);
+  output(EPS_Cmd);
+  output(Drive_Cmd); 
+  
+  /*消息计数*/
+  AliveCounter++;
+  if(AliveCounter>15)
+    AliveCounter=0;
+  
+  /*Message发送计时*/
+  setTimer(Ctrl_Period,Ctrl_dt);  
+    
+}
+
+///*驾驶源判断*/
+//on message AD_CAN::VCU_Vehicle_status_Report
+//{
+//  if($VCU_Control_Mode==5)  //人驾接管后自动驾驶主动退出
+//    @sysvar::ADAS::Request_Access=0;
+//  
+//}
+//
+//
+///*线控开关判断*/
+//on message AD_CAN::VCU_Brake_Req
+//{
+//  if($VCU_WireControl_Request==0)   //线控退出后自动驾驶主动退出
+//    @sysvar::ADAS::Request_Access=0;
+//}
+
+
+
+on timer Light_Period
+{
+  
+  output(Light_Cmd);
+  setTimer(Light_Period,Light_dt);  
+  
+}
+
+
