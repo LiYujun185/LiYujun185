@@ -85,10 +85,6 @@ int ReadDataFromCsv(char FilePath[], struct csv_Data Temp_csv_Data_array[])
 }
 
 /***************************************************************************************************
-----------------------------------------------------------------------------------------------------
-Revision history:
-Date   2022-2-18
-Author mayixiaobing
 
 根据指定分隔符 分割字符串类似于python split 函数
 ----------------------------------------------------------------------------------------------------
@@ -106,7 +102,7 @@ int spilt_string(char input_string[],char out_string_arrary[][],char sign[])
     int  out_arrary_length ;
    
 
-    debug = 0;
+    debug = 1;
 
     StartIndexPos = -1;
     out_arrary_length = 1;
